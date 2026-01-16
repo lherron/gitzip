@@ -1,0 +1,130 @@
+#!/usr/bin/env bun
+
+import { $ } from "bun";
+import { existsSync, rmSync, readFileSync } from "fs";
+import { join } from "path";
+
+// Load .env from script directory
+const scriptDir = import.meta.dir;
+const envPath = join(scriptDir, ".env");
+if (existsSync(envPath)) {
+  const envContent = readFileSync(envPath, "utf-8");
+  for (const line of envContent.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith("#")) {
+      const [key, ...rest] = trimmed.split("=");
+      const value = rest.join("=");
+      if (key && value !== undefined && !process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+const DEFAULT_USER = process.env.GITZIP_DEFAULT_USER;
+
+function parseRepoArg(arg: string): { user: string; repo: string } {
+  if (arg.includes("/")) {
+    const [user, repo] = arg.split("/", 2);
+    return { user, repo };
+  }
+  if (!DEFAULT_USER) {
+    console.error("Error: No user specified and GITZIP_DEFAULT_USER is not set");
+    console.error("  Either use 'user/repo' format or set GITZIP_DEFAULT_USER env var");
+    process.exit(1);
+  }
+  return { user: DEFAULT_USER, repo: arg };
+}
+
+function printUsage() {
+  console.log("Usage: gitzip [-f <output>] <repo|user/repo>");
+  if (DEFAULT_USER) {
+    console.log(`  If no user specified, defaults to '${DEFAULT_USER}'`);
+  } else {
+    console.log("  Set GITZIP_DEFAULT_USER env var to enable shorthand usage");
+  }
+  console.log("\nOptions:");
+  console.log("  -f <path>    Output filename/path (default: <repo>.zip in cwd)");
+  console.log("\nExamples:");
+  console.log("  gitzip myrepo              # Creates myrepo.zip");
+  console.log("  gitzip octocat/hello       # Creates hello.zip");
+  console.log("  gitzip -f out.zip myrepo   # Creates out.zip");
+}
+
+function parseArgs(args: string[]): { repo: string; outputPath: string | null } {
+  let outputPath: string | null = null;
+  let repo: string | null = null;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-f" && i + 1 < args.length) {
+      outputPath = args[++i];
+    } else if (!args[i].startsWith("-")) {
+      repo = args[i];
+    }
+  }
+
+  if (!repo) {
+    console.error("Error: No repository specified");
+    printUsage();
+    process.exit(1);
+  }
+
+  return { repo, outputPath };
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+
+  if (args.length === 0 || args[0] === "-h" || args[0] === "--help") {
+    printUsage();
+    process.exit(args.length === 0 ? 1 : 0);
+  }
+
+  const { repo: repoArg, outputPath } = parseArgs(args);
+  const { user, repo } = parseRepoArg(repoArg);
+  const repoUrl = `https://github.com/${user}/${repo}.git`;
+  const tmpDir = `/tmp/gitzip-${repo}-${Date.now()}`;
+  const cwd = process.cwd();
+
+  // Resolve output path
+  let zipPath: string;
+  if (outputPath) {
+    zipPath = outputPath.startsWith("/") ? outputPath : join(cwd, outputPath);
+    if (!zipPath.endsWith(".zip")) {
+      zipPath += ".zip";
+    }
+  } else {
+    zipPath = join(cwd, `${repo}.zip`);
+  }
+
+  console.log(`Cloning ${user}/${repo}...`);
+
+  try {
+    // Clone the repo
+    await $`git clone --depth 1 ${repoUrl} ${tmpDir}`.quiet();
+    console.log(`Cloned to ${tmpDir}`);
+
+    // Remove .git directory to avoid including git history
+    const gitDir = join(tmpDir, ".git");
+    if (existsSync(gitDir)) {
+      rmSync(gitDir, { recursive: true, force: true });
+    }
+
+    // Create zip file
+    console.log(`Creating ${zipPath}...`);
+    await $`cd ${tmpDir} && zip -r ${zipPath} .`.quiet();
+    console.log(`Created ${zipPath}`);
+
+  } catch (error) {
+    console.error(`Error: ${error}`);
+    process.exit(1);
+  } finally {
+    // Cleanup: remove the cloned repo
+    if (existsSync(tmpDir)) {
+      rmSync(tmpDir, { recursive: true, force: true });
+      console.log(`Cleaned up ${tmpDir}`);
+    }
+  }
+}
+
+main();

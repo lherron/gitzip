@@ -1,0 +1,15 @@
+{
+  "name": "gitzip",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "gitzip": "./gitzip.ts"
+  },
+  "scripts": {
+    "start": "bun run gitzip.ts"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.6",
+    "typescript": "^5.9.3"
+  }
+}
