@@ -82,7 +82,7 @@ async function main() {
 
   const { repo: repoArg, outputPath } = parseArgs(args);
   const { user, repo } = parseRepoArg(repoArg);
-  const repoUrl = `https://github.com/${user}/${repo}.git`;
+  const repoUrl = `git@github.com:${user}/${repo}.git`;
   const tmpDir = `/tmp/gitzip-${repo}-${Date.now()}`;
   const cwd = process.cwd();
 
@@ -115,8 +115,12 @@ async function main() {
     await $`cd ${tmpDir} && zip -r ${zipPath} .`.quiet();
     console.log(`Created ${zipPath}`);
 
-  } catch (error) {
-    console.error(`Error: ${error}`);
+  } catch (error: any) {
+    if (error?.exitCode === 128) {
+      console.error(`Error: Repository '${user}/${repo}' not found or not accessible`);
+    } else {
+      console.error(`Error: ${error?.stderr?.toString().trim() || error}`);
+    }
     process.exit(1);
   } finally {
     // Cleanup: remove the cloned repo
