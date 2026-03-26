@@ -23,21 +23,30 @@ if (existsSync(envPath)) {
 
 const DEFAULT_USER = process.env.GITZIP_DEFAULT_USER;
 
-function parseRepoArg(arg: string): { user: string; repo: string } {
-  if (arg.includes("/")) {
-    const [user, repo] = arg.split("/", 2);
-    return { user, repo };
+function parseRepoArg(arg: string): { user: string; repo: string; branch?: string } {
+  // Extract optional @branch suffix
+  let branch: string | undefined;
+  let repoSpec = arg;
+  if (arg.includes("@")) {
+    const atIndex = arg.lastIndexOf("@");
+    branch = arg.slice(atIndex + 1);
+    repoSpec = arg.slice(0, atIndex);
+  }
+
+  if (repoSpec.includes("/")) {
+    const [user, repo] = repoSpec.split("/", 2);
+    return { user, repo, branch };
   }
   if (!DEFAULT_USER) {
     console.error("Error: No user specified and GITZIP_DEFAULT_USER is not set");
     console.error("  Either use 'user/repo' format or set GITZIP_DEFAULT_USER env var");
     process.exit(1);
   }
-  return { user: DEFAULT_USER, repo: arg };
+  return { user: DEFAULT_USER, repo: repoSpec, branch };
 }
 
 function printUsage() {
-  console.log("Usage: gitzip [-f <output>] <repo|user/repo>");
+  console.log("Usage: gitzip [-f <output>] <repo|user/repo>[@branch]");
   if (DEFAULT_USER) {
     console.log(`  If no user specified, defaults to '${DEFAULT_USER}'`);
   } else {
@@ -45,10 +54,12 @@ function printUsage() {
   }
   console.log("\nOptions:");
   console.log("  -f <path>    Output filename/path (default: <repo>.zip in cwd)");
+  console.log("  @branch      Clone specific branch (default: default branch)");
   console.log("\nExamples:");
   console.log("  gitzip myrepo              # Creates myrepo.zip");
   console.log("  gitzip octocat/hello       # Creates hello.zip");
   console.log("  gitzip -f out.zip myrepo   # Creates out.zip");
+  console.log("  gitzip user/repo@develop   # Creates repo.zip from develop branch");
 }
 
 function parseArgs(args: string[]): { repo: string; outputPath: string | null } {
@@ -81,7 +92,7 @@ async function main() {
   }
 
   const { repo: repoArg, outputPath } = parseArgs(args);
-  const { user, repo } = parseRepoArg(repoArg);
+  const { user, repo, branch } = parseRepoArg(repoArg);
   const repoUrl = `git@github.com:${user}/${repo}.git`;
   const tmpDir = `/tmp/gitzip-${repo}-${Date.now()}`;
   const cwd = process.cwd();
@@ -97,11 +108,16 @@ async function main() {
     zipPath = join(cwd, `${repo}.zip`);
   }
 
-  console.log(`Cloning ${user}/${repo}...`);
+  const branchInfo = branch ? ` (branch: ${branch})` : "";
+  console.log(`Cloning ${user}/${repo}${branchInfo}...`);
 
   try {
     // Clone the repo
-    await $`git clone --depth 1 ${repoUrl} ${tmpDir}`.quiet();
+    if (branch) {
+      await $`git clone --depth 1 --branch ${branch} ${repoUrl} ${tmpDir}`.quiet();
+    } else {
+      await $`git clone --depth 1 ${repoUrl} ${tmpDir}`.quiet();
+    }
     console.log(`Cloned to ${tmpDir}`);
 
     // Remove .git directory to avoid including git history
