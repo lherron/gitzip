@@ -7,6 +7,9 @@ check:
 # Build (currently just type checks)
 build: check
 
-# Link to ~/.bun/bin for global CLI access
+# Clean, install deps, build, and link for global CLI access
 install:
+    rm -rf node_modules
+    bun install
+    just build
     bun link
