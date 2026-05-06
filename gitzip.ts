@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { existsSync, rmSync, readFileSync } from "fs";
+import { existsSync, rmSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 
 // Load .env from script directory
@@ -126,10 +126,16 @@ async function main() {
       rmSync(gitDir, { recursive: true, force: true });
     }
 
+    // Remove existing zip if present so we create fresh, not update
+    if (existsSync(zipPath)) {
+      rmSync(zipPath, { force: true });
+    }
+
     // Create zip file
     console.log(`Creating ${zipPath}...`);
     await $`cd ${tmpDir} && zip -r ${zipPath} .`.quiet();
-    console.log(`Created ${zipPath}`);
+    const sizeMB = (statSync(zipPath).size / (1024 * 1024)).toFixed(2);
+    console.log(`Created ${zipPath} (${sizeMB} MB)`);
 
   } catch (error: any) {
     if (error?.exitCode === 128) {
