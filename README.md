@@ -12,15 +12,17 @@ bun link
 ## Usage
 
 ```bash
-gitzip <repo|user/repo>
-gitzip -f <output> <repo|user/repo>
+gitzip <repo|user/repo>[@branch][,<repo>...]
+gitzip -f <output> <repo|user/repo>[,<repo>...]
 ```
 
 ## Examples
 
 ```bash
-gitzip octocat/hello       # Creates hello.zip
-gitzip -f out.zip myrepo   # Creates out.zip
+gitzip octocat/hello             # Creates hello.zip
+gitzip -f out.zip myrepo         # Creates out.zip
+gitzip user/repo@develop         # Creates repo.zip from develop branch
+gitzip foo,bar,baz               # Creates foo-bundle.zip with foo/, bar/, baz/ at top level
 ```
 
 ## Configuration
