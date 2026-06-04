@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { existsSync, rmSync, readFileSync, statSync, mkdtempSync } from "fs";
+import { existsSync, rmSync, readFileSync, statSync, mkdtempSync, readdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -60,15 +60,15 @@ function printUsage() {
     console.log("  Set GITZIP_DEFAULT_USER env var to enable shorthand usage");
   }
   console.log("\nOptions:");
-  console.log("  -f <path>    Output filename/path (default: <repo>.zip or <first>-bundle.zip)");
+  console.log("  -f <path>    Output filename/path (default: <repo>-<timestamp>.zip or <first>-bundle-<timestamp>.zip)");
   console.log("  @branch      Clone specific branch (default: default branch)");
   console.log("  ,            Comma-separate to bundle multiple repos into one zip");
   console.log("\nExamples:");
-  console.log("  gitzip myrepo                       # Creates myrepo.zip");
-  console.log("  gitzip octocat/hello                # Creates hello.zip");
+  console.log("  gitzip myrepo                       # Creates myrepo-<timestamp>.zip");
+  console.log("  gitzip octocat/hello                # Creates hello-<timestamp>.zip");
   console.log("  gitzip -f out.zip myrepo            # Creates out.zip");
-  console.log("  gitzip user/repo@develop            # Creates repo.zip from develop branch");
-  console.log("  gitzip foo,bar,baz                  # Creates foo-bundle.zip with foo/, bar/, baz/");
+  console.log("  gitzip user/repo@develop            # Creates repo-<timestamp>.zip from develop branch");
+  console.log("  gitzip foo,bar,baz                  # Creates foo-bundle-<timestamp>.zip with foo/, bar/, baz/");
 }
 
 function parseArgs(args: string[]): { repo: string; outputPath: string | null } {
@@ -110,6 +110,25 @@ async function cloneRepo(spec: RepoSpec, destDir: string): Promise<void> {
   }
 }
 
+function timestamp(): string {
+  // Matches `date +%m%d%y%H%M%S` (the chatpack convention)
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    p(d.getMonth() + 1) +
+    p(d.getDate()) +
+    p(d.getFullYear() % 100) +
+    p(d.getHours()) +
+    p(d.getMinutes()) +
+    p(d.getSeconds())
+  );
+}
+
+function defaultBasePrefix(specs: RepoSpec[]): string {
+  // Prefix shared by all timestamped outputs for this repo set
+  return specs.length === 1 ? `${specs[0].repo}-` : `${specs[0].repo}-bundle-`;
+}
+
 function resolveOutputPath(
   outputPath: string | null,
   specs: RepoSpec[],
@@ -119,10 +138,27 @@ function resolveOutputPath(
     const p = outputPath.startsWith("/") ? outputPath : join(cwd, outputPath);
     return p.endsWith(".zip") ? p : `${p}.zip`;
   }
-  if (specs.length === 1) {
-    return join(cwd, `${specs[0].repo}.zip`);
+  return join(cwd, `${defaultBasePrefix(specs)}${timestamp()}.zip`);
+}
+
+function deletePreviousBundles(prefix: string, cwd: string): void {
+  // Match prior timestamped zips for this repo set in code (no shell glob)
+  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\d{12}\\.zip$`);
+  const matches = readdirSync(cwd).filter((name) => re.test(name));
+
+  // Safety guard: refuse to mass-delete — abort without removing anything
+  if (matches.length > 3) {
+    console.error(
+      `Error: refusing to delete ${matches.length} previous bundles matching '${prefix}<timestamp>.zip' (limit 3)`,
+    );
+    console.error(`  Remove them manually or use -f to choose an explicit output name`);
+    process.exit(1);
   }
-  return join(cwd, `${specs[0].repo}-bundle.zip`);
+
+  for (const name of matches) {
+    rmSync(join(cwd, name), { force: true });
+    console.log(`Removed previous bundle ${name}`);
+  }
 }
 
 async function main() {
@@ -169,6 +205,11 @@ async function main() {
     await Promise.all(
       specs.map((spec) => cloneRepo(spec, join(stagingDir, spec.repo))),
     );
+
+    // For default naming, remove prior timestamped bundles for this repo set
+    if (!outputPath) {
+      deletePreviousBundles(defaultBasePrefix(specs), cwd);
+    }
 
     // Remove existing zip if present so we create fresh, not update
     if (existsSync(zipPath)) {
